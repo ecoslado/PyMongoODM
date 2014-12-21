@@ -8,11 +8,10 @@ import fields
 
 from django.conf import settings
 
-#client = pymongo.MongoClient(host=settings.MONGODM["HOST"], port=settings.MONGODM["PORT"])
-#database = client[settings.MONGODM["DATABASE"]]
+client = pymongo.MongoClient(host=settings.MONGODM["HOST"], port=settings.MONGODM["PORT"])
+database = client[settings.MONGODM["DATABASE"]]
 
-client = pymongo.MongoClient()
-database = client["maquinahamlet"]
+
 
 class ModelMeta(type):
     """
@@ -73,6 +72,12 @@ class Model(object):
                 setattr(self,
                         f.field_name,
                         fields.make_field(kwargs[f.field_name]))
+                setattr(self,
+                        "get_%s" % f.field_name,
+                        self.getattr(f.field_name))
+                setattr(self,
+                        "set_%s" % f.field_name,
+                        self.setattr(f.field_name))
 
             except KeyError:
                 pass
