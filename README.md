@@ -1,11 +1,11 @@
 PyMongoODM
 ==========
 
-Mongo ODM wroten in Python based in pymongo client.
-* Installation
+Mongo ODM wroten in Python and based in pymongo client.
+* Installation 
 TODO
 
-* Configuration
+* Configuration 
 TODO
 
 * Define your model
