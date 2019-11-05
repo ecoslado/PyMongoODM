@@ -1,16 +1,22 @@
 __author__ = 'Enrique Coslado'
 __version__ = "0.0.1"
 
-
 import copy
 import pymongo
 import fields
 
-from django.conf import settings
+import settings
 
 client = pymongo.MongoClient(host=settings.MONGODM["HOST"], port=settings.MONGODM["PORT"])
-database = client[settings.MONGODM["DATABASE"]]
+database = client[settings.MONGODM["NAME"]]
 
+
+def import_module(name):
+    components = name.split('.')
+    mod = __import__(components[0])
+    for comp in components[1:]:
+        mod = getattr(mod, comp)
+    return mod
 
 
 class ModelMeta(type):
@@ -18,12 +24,13 @@ class ModelMeta(type):
     This class is responsible of PyMongODM Models behaviour.
     """
 
-    def __new__(mcs, name, bases, attrs):
-        cls = super(ModelMeta, mcs).__new__(mcs, name, bases, attrs)
+    def __init__(cls, name, bases, attrs):
+
+        super(ModelMeta, cls).__init__(name, bases, attrs)
 
         parents = [base for base in bases if isinstance(base, ModelMeta)]
         if not parents:
-            return cls
+            return
 
         base_fields = dict()
 
@@ -39,21 +46,18 @@ class ModelMeta(type):
 
         cls_fields = []
 
-        for name, value in attrs.iteritems():
+        for name, value in attrs.items():
             if isinstance(value, fields.Field):
                 base_fields.pop(name, None)
                 value.field_name = name
                 value.model_class = cls
                 cls_fields.append(value)
 
-        cls._fields = base_fields.values() + cls_fields
-
+        cls._fields = list(base_fields.values()) + cls_fields
         cls.objects = database[cls.__name__.lower()]
 
-        return cls
 
-
-class Model(object):
+class Model(object, metaclass=ModelMeta):
     """
     Base class for every model you can define.
     Example:
@@ -77,7 +81,7 @@ class Model(object):
                         self.getattr(f.field_name))
                 setattr(self,
                         "set_%s" % f.field_name,
-                        self.setattr(f.field_name))
+                        self.setattr(f.field_name, kwargs[f.field_name]))
 
             except KeyError:
                 pass
@@ -85,34 +89,64 @@ class Model(object):
         if "_id" in kwargs:
             self._id = kwargs["_id"]
 
-    def obj_to_doc(self):
+    def serialize(self):
         doc = dict()
-        doc["type"] = {"class": self.__class__.__name__, "module": self.__module__}
+        doc["__type__"] = {"class": self.__class__.__name__, "module": self.__module__}
         for field in self._fields:
             attr = getattr(self, field.field_name)
             if attr:
-                doc[field.field_name] = attr.render()
+                doc[field.field_name] = attr.serialize()
         return doc
+
+    def deserialize(self, dictionary):
+        return self.__deserialize(dictionary).value
+
+    def __deserialize(self, dictionary):
+        cls = None
+        if '__type__' in dictionary:
+            mod_name = dictionary['__type__']['module']
+            cls_name = dictionary['__type__']['class']
+            mod = import_module(mod_name)
+            cls = getattr(mod, cls_name)
+            del dictionary['__type__']
+
+        deserialized = dict()
+        for key, value in dictionary.items():
+            if type(value) == dict:
+                deserialized[key] = fields.ObjectField(self.deserialize(value))
+            elif type(value) == list:
+                deserialized[key] = fields.ListField([self.deserialize(v) for v in value])
+            elif type(value) == int:
+                deserialized[key] = fields.IntegerField(value)
+            elif type(value) == float:
+                deserialized[key] = fields.FloatField(value)
+            else:
+                deserialized[key] = fields.StringField(value)
+        if cls:
+            return fields.ObjectField(cls(**deserialized))
+        else:
+            return deserialized
 
     def getattr(self, attr):
         field = getattr(self, attr)
-        return field.render()
+        #return field.serialize()
+        return field.value
 
     def setattr(self, attr, value):
         if isinstance(value, Model):
-            value = value.obj_to_doc()
+            value = value.serialize()
         field = fields.make_field(value)
         setattr(self, attr, field)
         return self
 
     def save(self):
-        document = self.obj_to_doc()
+        document = self.serialize()
         self.__class__.objects.insert(document)
         return self
 
     def update(self):
         if self._id:
-            self.__class__.objects.update({"_id": self._id}, self.obj_to_doc())
+            self.__class__.objects.update({"_id": self._id}, self.serialize())
         return self
 
     def delete(self):

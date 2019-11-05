@@ -24,12 +24,13 @@ def make_field(value):
     else:
         return StringField(value)
 
+
 class Field(object):
     value = ""
     required = False
 
 
-    def __init__(self, value="", **kwargs):
+    def __init__(self, **kwargs):
         try:
             self.value = kwargs["value"]
             self.required = kwargs["required"]
@@ -37,7 +38,7 @@ class Field(object):
         except KeyError:
             pass
 
-    def render(self):
+    def serialize(self):
         return self.value
 
 
@@ -74,20 +75,21 @@ class FloatField(Field):
         self.value = float(value)
         return self
 
+
 class StringField(Field):
     value = ""
     required = False
 
     def __init__(self, value="", **kwargs):
         try:
-            self.value = unicode(value)
+            self.value = value
             self.required = kwargs["required"]
 
         except KeyError:
             pass
 
     def set(self, value):
-        self.value = unicode(value)
+        self.value = value
         return self
 
 
@@ -96,22 +98,14 @@ class ObjectField(Field):
     cls = None
     required = False
 
-    def __init__(self, value=None, cls=None, **kwargs):
-        try:
-            if "required" in kwargs:
-                self.required = kwargs["required"]
-                del kwargs["required"]
-
-            if value:
-                self.cls = value.__class__
-                self.value = value
-            elif cls:
-                self.cls = cls
-                self.value = cls(**kwargs)
+    def __init__(self, value=None, **kwargs):
+        if "required" in kwargs:
+            self.required = kwargs["required"]
+            del kwargs["required"]
+        self.cls = value.__class__
+        self.value = value
 
 
-        except KeyError:
-            pass
 
     def set(self, value):
         if self.cls and isinstance(value, self.cls):
@@ -124,16 +118,17 @@ class ObjectField(Field):
         else:
             raise Exception("Object field can't change class.")
 
-    def render(self):
+    def serialize(self):
         if self.value:
-            return self.value.obj_to_doc()
+            return self.value.serialize()
 
 
 class ListField(Field):
     value = []
     required = False
 
-    def __init__(self, value=[], **kwargs):
+    def __init__(self, value=None, **kwargs):
+        value = value or list()
         try:
             if type(value) == list and all(isinstance(obj, Field) for obj in value):
                 self.value = value
@@ -152,6 +147,5 @@ class ListField(Field):
             self.value = [make_field(value)]
         return self
 
-
-    def render(self):
-        return [field.render() for field in self.value]
+    def serialize(self):
+        return [field.serialize() for field in self.value]
